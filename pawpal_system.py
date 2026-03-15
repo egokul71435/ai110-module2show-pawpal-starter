@@ -1,6 +1,13 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from datetime import date, timedelta
+from itertools import combinations
 from typing import Literal
+
+FREQUENCY_DELTAS: dict[str, timedelta] = {
+    "daily": timedelta(days=1),
+    "weekly": timedelta(weeks=1),
+}
 
 
 @dataclass
@@ -13,14 +20,26 @@ class CareTask:
     task_type: str
     frequency: str = "daily"
     completed: bool = False
+    due_date: date = field(default_factory=date.today)
 
     def priority_rank(self) -> int:
         """Return a numeric score for sorting: high=3, medium=2, low=1."""
         return {"low": 1, "medium": 2, "high": 3}[self.priority]
 
-    def mark_complete(self) -> None:
-        """Mark this task as completed."""
+    def mark_complete(self) -> CareTask | None:
+        """Mark this task as completed; return next occurrence if recurring."""
         self.completed = True
+        delta = FREQUENCY_DELTAS.get(self.frequency)
+        if delta is None:
+            return None
+        return CareTask(
+            title=self.title,
+            duration_minutes=self.duration_minutes,
+            priority=self.priority,
+            task_type=self.task_type,
+            frequency=self.frequency,
+            due_date=self.due_date + delta,
+        )
 
     def reset(self) -> None:
         """Reset this task to incomplete."""
@@ -46,6 +65,16 @@ class Pet:
                 self.tasks.pop(i)
                 return True
         return False
+
+    def complete_task(self, title: str) -> CareTask | None:
+        """Mark a task done and auto-add its next occurrence if recurring."""
+        for task in self.tasks:
+            if task.title == title and not task.completed:
+                next_task = task.mark_complete()
+                if next_task is not None:
+                    self.tasks.append(next_task)
+                return next_task
+        return None
 
     def get_pending_tasks(self) -> list[CareTask]:
         """Return all tasks that have not been marked complete."""
@@ -99,6 +128,14 @@ class DailySchedule:
     entries: list[ScheduledEntry] = field(default_factory=list)
     summary: str = ""
 
+    def sort_by_time(self) -> DailySchedule:
+        """Return a new DailySchedule with entries sorted by start_time (HH:MM)."""
+        sorted_entries = sorted(
+            self.entries,
+            key=lambda e: tuple(int(p) for p in e.start_time.split(":")),
+        )
+        return DailySchedule(entries=sorted_entries, summary=self.summary)
+
     def to_dict_list(self) -> list[dict]:
         """Convert entries to a list of plain dicts for st.table()."""
         return [
@@ -119,6 +156,43 @@ class Scheduler:
 
     def __init__(self, owner: Owner) -> None:
         self.owner = owner
+
+    def filter_tasks(
+        self,
+        completed: bool | None = None,
+        pet_name: str | None = None,
+    ) -> list[CareTask]:
+        """Filter tasks by completion status, pet name, or both."""
+        results: list[CareTask] = []
+        for pet in self.owner.pets:
+            if pet_name is not None and pet.name != pet_name:
+                continue
+            for task in pet.tasks:
+                if completed is not None and task.completed != completed:
+                    continue
+                results.append(task)
+        return results
+
+    @staticmethod
+    def _to_minutes(time_str: str) -> int:
+        """Convert 'HH:MM' to total minutes since midnight."""
+        h, m = time_str.split(":")
+        return int(h) * 60 + int(m)
+
+    def detect_conflicts(self, schedule: DailySchedule) -> list[str]:
+        """Return warning messages for any entries whose time ranges overlap."""
+        warnings: list[str] = []
+        for a, b in combinations(schedule.entries, 2):
+            a_start = self._to_minutes(a.start_time)
+            a_end = a_start + a.task.duration_minutes
+            b_start = self._to_minutes(b.start_time)
+            b_end = b_start + b.task.duration_minutes
+            if a_start < b_end and b_start < a_end:
+                warnings.append(
+                    f'Conflict: "{a.task.title}" ({a.start_time}–{a_end // 60:02d}:{a_end % 60:02d}) '
+                    f'overlaps with "{b.task.title}" ({b.start_time}–{b_end // 60:02d}:{b_end % 60:02d})'
+                )
+        return warnings
 
     def generate(self) -> DailySchedule:
         """Build a priority-sorted daily schedule that fits the owner's time budget."""

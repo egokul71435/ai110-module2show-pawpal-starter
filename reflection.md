@@ -126,8 +126,11 @@ The initial UML showed `Owner "1" --> "1" Pet : owns`, implying `Owner` should h
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The scheduler uses a **greedy algorithm**: it sorts all pending tasks by priority (high → low), then by duration (shorter first), and walks the list adding each task to the plan as long as it fits in the remaining time. Once a task is skipped because it is too long, it is never reconsidered.
+
+This means the scheduler can produce a suboptimal fit. For example, if 20 minutes remain and the next task in priority order needs 25 minutes, the greedy approach skips it — even if two 10-minute lower-priority tasks could fill that gap instead. A knapsack-style algorithm would find the combination that uses the most available time, but it would be significantly more complex to implement and harder to explain to the user in the reasoning text.
+
+The greedy approach is reasonable here because a pet owner cares more about "did the important things get done?" than "was every minute used?" Prioritizing high-priority tasks first and keeping the logic simple and explainable is the right tradeoff for a daily care planner.
 
 ---
 

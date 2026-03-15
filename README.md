@@ -22,6 +22,16 @@ Your final app should:
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
 
+## Smarter Scheduling
+
+Beyond basic priority sorting, the scheduler includes three additional features:
+
+- **Recurring tasks** — Tasks with a `daily` or `weekly` frequency automatically generate their next occurrence when marked complete, using `timedelta` to calculate the correct due date. One-time tasks simply close out.
+- **Conflict detection** — After a schedule is built (or manually constructed), `detect_conflicts()` checks every pair of entries for overlapping time ranges and returns human-readable warnings rather than crashing.
+- **Filtering** — `filter_tasks()` lets you narrow tasks by completion status, pet name, or both, making it easy to answer questions like "what does Whiskers still need today?"
+
+The core algorithm is a greedy fit: tasks are sorted by priority then duration, and each task is added to the plan if it fits in the owner's remaining time. This keeps the logic simple and the reasoning text explainable at the cost of occasionally leaving small time gaps that a knapsack approach could fill.
+
 ## Getting started
 
 ### Setup
