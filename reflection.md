@@ -96,13 +96,24 @@ classDiagram
 
 **a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+The initial design uses six classes with clearly separated responsibilities:
+
+- **Owner** — holds the human user's name and daily time budget. Responsible for answering whether a given task duration fits within the remaining available time (`has_enough_time`). It is the source of the scheduling constraint.
+- **Pet** — a simple data-holding class for the animal's name and species. It has no behavior of its own; the Scheduler references it to personalize the reasoning text in the output plan.
+- **CareTask** — represents a single care activity. Responsible for storing what needs to happen (title, type, duration) and how urgently (priority). It owns the logic for converting its text priority into a sortable number (`priority_rank`), keeping that knowledge local to the class rather than scattered across the scheduler.
+- **ScheduledEntry** — a result record that pairs a CareTask with a concrete start time and a one-sentence explanation. It has no behavior; its role is to bundle the output data the UI needs to display one row of the schedule.
+- **Scheduler** — the only class with significant logic. Given an Owner, a Pet, and a list of CareTasks, it decides which tasks fit in the time window and in what order, then returns a complete DailySchedule. The logic is split across two methods: `generate` (selection and ordering) and `_assign_start_times` (time arithmetic and reasoning text).
+- **DailySchedule** — the output artifact. Holds the ordered list of ScheduledEntry objects and a human-readable summary line. Responsible for converting its entries into plain dicts via `to_dict_list` so the Streamlit UI can hand the result directly to `st.table`.
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+**Change 1 — `CareTask.priority` narrowed from `str` to `Literal["low", "medium", "high"]`**
+
+The initial UML typed `priority` as a plain string. During skeleton review it became clear that `priority_rank()` can only work correctly for three specific values, so any other string would cause a silent logic failure. Changing the type annotation to `Literal["low", "medium", "high"]` encodes this constraint directly in the class definition, so type-checkers and IDEs flag bad inputs before the code even runs.
+
+**Change 2 — `Owner → Pet` ownership relationship removed from `Owner`**
+
+The initial UML showed `Owner "1" --> "1" Pet : owns`, implying `Owner` should hold a `pet` attribute. In practice, the Streamlit UI collects owner info and pet info as separate form inputs, so both are passed independently to `Scheduler`. Embedding `pet` inside `Owner` would create awkward nesting (`owner.pet.name`) and couple two concepts that the UI treats separately. The relationship was updated: `Scheduler` is now the object that groups `owner` and `pet` together, which better reflects how data flows through the app.
 
 ---
 
