@@ -44,23 +44,37 @@
 
 ```mermaid
 classDiagram
-    class Owner {
-        +str name
-        +int available_minutes
-        +has_enough_time(minutes: int) bool
+    class CareTask {
+        +str title
+        +int duration_minutes
+        +Literal priority
+        +str task_type
+        +str frequency
+        +bool completed
+        +date due_date
+        +priority_rank() int
+        +mark_complete() CareTask | None
+        +reset() None
     }
 
     class Pet {
         +str name
         +str species
+        +list~CareTask~ tasks
+        +add_task(task: CareTask) None
+        +remove_task(title: str) bool
+        +complete_task(title: str) CareTask | None
+        +get_pending_tasks() list~CareTask~
     }
 
-    class CareTask {
-        +str title
-        +int duration_minutes
-        +str priority
-        +str task_type
-        +priority_rank() int
+    class Owner {
+        +str name
+        +int available_minutes
+        +list~Pet~ pets
+        +add_pet(pet: Pet) None
+        +get_all_tasks() list~CareTask~
+        +get_all_pending_tasks() list~CareTask~
+        +has_enough_time(minutes: int) bool
     }
 
     class ScheduledEntry {
@@ -69,27 +83,29 @@ classDiagram
         +str reasoning
     }
 
+    class DailySchedule {
+        +list~ScheduledEntry~ entries
+        +str summary
+        +sort_by_time() DailySchedule
+        +to_dict_list() list~dict~
+    }
+
     class Scheduler {
         +Owner owner
-        +Pet pet
-        +list tasks
+        +filter_tasks(completed, pet_name) list~CareTask~
+        +detect_conflicts(schedule: DailySchedule) list~str~
         +generate() DailySchedule
-        -_assign_start_times(entries: list) list
+        -_assign_start_times(tasks: list) list~ScheduledEntry~
+        -_to_minutes(time_str: str)$ int
     }
 
-    class DailySchedule {
-        +list entries
-        +str summary
-        +to_dict_list() list
-    }
-
-    Owner "1" --> "1" Pet : owns
-    Scheduler --> Owner : uses
-    Scheduler --> Pet : uses
-    Scheduler --> "*" CareTask : schedules
+    Owner "1" --> "*" Pet : manages
+    Pet "1" --> "*" CareTask : holds
+    Scheduler --> Owner : reads
     Scheduler ..> DailySchedule : produces
     DailySchedule --> "*" ScheduledEntry : contains
     ScheduledEntry --> CareTask : references
+    CareTask ..> CareTask : mark_complete creates next
 ```
 
 ---
@@ -121,8 +137,13 @@ The initial UML showed `Owner "1" --> "1" Pet : owns`, implying `Owner` should h
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers three constraints, in this order of importance:
+
+1. **Priority** (high / medium / low) — the primary sort key. High-priority tasks like medication or feeding are non-negotiable for pet health, so they must be scheduled first regardless of duration.
+2. **Time budget** (`available_minutes`) — the hard ceiling. Once the owner's free time is exhausted, remaining tasks are reported but not scheduled. This prevents the planner from producing an unrealistic day.
+3. **Duration** (shorter first within the same priority) — the tiebreaker. When two tasks share a priority level, the shorter one is scheduled first because it's more likely to fit in the remaining window and leaves room for other tasks.
+
+Priority was ranked highest because the scenario is pet *care* — skipping a medication to fit in a grooming session would be a safety failure. Time budget is second because it's an objective physical constraint. Duration as a tiebreaker was chosen over alphabetical order or task type because it maximizes the number of tasks that fit.
 
 **b. Tradeoffs**
 
@@ -138,13 +159,27 @@ The greedy approach is reasonable here because a pet owner cares more about "did
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+AI (Claude Code) was used throughout the project in several distinct roles:
+
+- **Design brainstorming** — Early prompts like "brainstorm the main objects needed for the system" and "for each object, determine what info it needs to hold and what actions it can perform" produced the initial six-class object model. AI was effective at generating a comprehensive first draft quickly, but the human role was deciding which classes actually earned their place versus which were over-engineering.
+- **UML generation** — AI produced the Mermaid.js class diagram directly from the brainstormed object descriptions, including relationship arrows and multiplicity. This was the most time-efficient use — translating a natural-language design into diagram syntax is mechanical work that AI handles well.
+- **Skeleton-to-implementation** — Prompts like "flesh out the core implementation of the four classes" turned empty stubs into working Python. AI generated the greedy scheduling algorithm, the `timedelta`-based recurrence logic, and the `itertools.combinations` conflict detector.
+- **Refactoring** — When asked "how could this algorithm be simplified for better readability?", AI suggested replacing manual `range(len(...))` index loops with `itertools.combinations` in `detect_conflicts()`. This was a genuine improvement — both more Pythonic and more readable.
+- **Test generation** — AI produced 15 tests covering happy paths, edge cases, and boundary conditions from a single prompt asking for sorting, recurrence, and conflict coverage.
+
+The most effective prompts were *specific and scoped*: "review the skeleton, check for missing relationships or logic bottlenecks" produced actionable feedback, while vague prompts like "make it better" would have been less useful.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+**Rejected suggestion: `Owner` containing a `pet` attribute.**
+
+The initial AI-generated UML showed `Owner "1" --> "1" Pet : owns`, implying Owner should hold a direct reference to a single Pet. This felt clean on a diagram but would have caused problems:
+
+- The Streamlit UI collects owner and pet info in separate form sections — nesting `pet` inside `Owner` would create awkward coupling (`owner.pet.name` instead of just `pet.name`).
+- A single `pet` attribute would block the later requirement to support multiple pets.
+- The Scheduler needed both objects but didn't need them to be nested.
+
+This was evaluated by tracing how data would actually flow from the UI widgets through session state into the Scheduler. The UI-first analysis revealed that the diagram's "clean" relationship would create friction in practice. The decision: Scheduler holds Owner and Pet(s) as independent inputs, and later Owner was updated to hold a `pets` list when multi-pet support was added. The AI's initial suggestion was structurally valid but didn't account for how the Streamlit data flow would work.
 
 ---
 
@@ -152,13 +187,23 @@ The greedy approach is reasonable here because a pet owner cares more about "did
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+The test suite (15 tests in `tests/test_pawpal.py`) covers five categories:
+
+- **Basic operations** (2 tests) — Task completion status toggle and task count after adding to a pet. These verify the foundational building blocks that every other feature depends on.
+- **Sorting correctness** (3 tests) — Priority ordering (high before medium before low), duration tiebreaker within the same priority, and chronological `sort_by_time()`. These are critical because incorrect sorting would silently produce a schedule that looks right but prioritizes the wrong tasks.
+- **Recurrence logic** (4 tests) — Daily recurrence (+1 day), weekly recurrence (+7 days), one-time tasks (no recurrence), and `Pet.complete_task()` auto-appending the next occurrence. Recurrence bugs would be invisible until a user notices their daily walk stopped appearing.
+- **Conflict detection** (3 tests) — Overlapping time ranges flagged, adjacent (non-overlapping) entries pass clean, and identical start times flagged. The adjacent-entries test is especially important — it guards against an off-by-one error where touching-but-not-overlapping tasks get falsely flagged.
+- **Edge cases** (3 tests) — Pet with no tasks, owner with zero available minutes, and all tasks already completed. These prevent crashes or confusing output when the system receives empty or degenerate input.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+**Confidence: 4 out of 5.**
+
+The test suite covers all core algorithms (sorting, greedy fit, recurrence, conflict detection) and the most likely boundary conditions. The remaining gap is integration-level testing: the tests verify `pawpal_system.py` in isolation but do not exercise the Streamlit UI layer (`app.py`), session state persistence across reruns, or multi-pet interactions where tasks from different pets compete for the same time window. If given more time, the next tests would be:
+
+- A multi-pet scenario where both pets have high-priority tasks that exceed the time budget, verifying fair distribution
+- A recurrence chain test: complete a daily task three times in a row and confirm each due date advances correctly
+- A Streamlit integration test using `streamlit.testing` to verify that adding a pet via the UI actually populates `st.session_state.owner.pets`
 
 ---
 
@@ -166,12 +211,15 @@ The greedy approach is reasonable here because a pet owner cares more about "did
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The cleanest part of this project is the separation between the logic layer (`pawpal_system.py`) and the UI layer (`app.py`). The Scheduler, Owner, Pet, and CareTask classes have zero knowledge of Streamlit — they work identically in `main.py` (terminal), `test_pawpal.py` (pytest), and `app.py` (browser). This made it possible to build and test every algorithm in the terminal before touching the UI, which caught bugs early and kept iteration cycles short. The `DailySchedule.to_dict_list()` bridge method is a small detail that pays off repeatedly: it's the single point where domain objects become UI-ready dicts, so neither side needs to know about the other's internals.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+Two things:
+
+1. **The greedy scheduler should handle multi-pet fairness.** Currently, if Mochi has three high-priority tasks and Whiskers has one, Mochi's tasks dominate the schedule. A fairer algorithm would interleave pets at the same priority level so no single pet monopolizes the time budget.
+2. **Task editing and deletion in the UI.** The current app lets users add tasks and toggle completion, but there's no way to change a task's duration or priority after creation, and no delete button. These are basic CRUD operations that a real user would expect.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The most important lesson is that **AI is an accelerator, not an architect**. AI generated working code quickly — class skeletons, sorting algorithms, test suites — but every structural decision (which classes to keep, how relationships should flow, whether to use a greedy algorithm or something fancier) required human judgment informed by how the system would actually be used. The Owner-Pet relationship is the clearest example: AI proposed a textbook UML association, but tracing the Streamlit data flow revealed it would create friction. The human role is to hold the full picture — UI flow, user expectations, testing strategy, future extensibility — and use AI to execute the pieces efficiently. Being the "lead architect" means you own the *why* behind every decision; AI handles the *how* of translating that decision into code.

@@ -22,15 +22,31 @@ Your final app should:
 - Display the plan clearly (and ideally explain the reasoning)
 - Include tests for the most important scheduling behaviors
 
-## Smarter Scheduling
+## Demo
 
-Beyond basic priority sorting, the scheduler includes three additional features:
+<a href="/course_images/ai110/demo.png" target="_blank"><img src='/course_images/ai110/demo.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
 
-- **Recurring tasks** — Tasks with a `daily` or `weekly` frequency automatically generate their next occurrence when marked complete, using `timedelta` to calculate the correct due date. One-time tasks simply close out.
-- **Conflict detection** — After a schedule is built (or manually constructed), `detect_conflicts()` checks every pair of entries for overlapping time ranges and returns human-readable warnings rather than crashing.
-- **Filtering** — `filter_tasks()` lets you narrow tasks by completion status, pet name, or both, making it easy to answer questions like "what does Whiskers still need today?"
+The screenshot shows the filtering panel, the generated schedule with priority sorting and reasoning text, and the time-budget summary banner.
 
-The core algorithm is a greedy fit: tasks are sorted by priority then duration, and each task is added to the plan if it fits in the owner's remaining time. This keeps the logic simple and the reasoning text explainable at the cost of occasionally leaving small time gaps that a knapsack approach could fill.
+## Features
+
+### Scheduling engine
+- **Priority-based greedy scheduling** — Tasks are sorted by priority (high → medium → low), with shorter tasks first as a tiebreaker. The scheduler greedily fills the owner's available time window, skipping tasks that don't fit. Each scheduled task includes a plain-English reasoning line explaining why it was placed where it is.
+- **Chronological sorting** — `sort_by_time()` reorders schedule entries by their `HH:MM` start time using a lambda key that splits the string into an `(hour, minute)` tuple for correct numeric comparison.
+- **Time-budget enforcement** — The owner's `available_minutes` acts as a hard ceiling. Tasks are added until the budget is exhausted; remaining tasks are reported in the summary but not scheduled.
+
+### Task lifecycle
+- **Daily and weekly recurrence** — When a recurring task is marked complete, `mark_complete()` uses `timedelta` to calculate the next due date (+1 day for daily, +7 days for weekly) and returns a fresh incomplete copy. One-time tasks return `None` and simply close out.
+- **Completion tracking** — Each task carries a `completed` flag. `Pet.complete_task()` marks the task done and auto-appends the next occurrence to the pet's task list in a single call.
+
+### Safety and filtering
+- **Conflict detection** — `detect_conflicts()` compares every pair of schedule entries using `itertools.combinations` and the standard interval-overlap test (`a_start < b_end AND b_start < a_end`). Overlapping entries produce human-readable warnings displayed as `st.warning` banners in the UI rather than crashing.
+- **Task filtering** — `filter_tasks()` narrows the full task list by completion status, pet name, or both. Results are displayed in a filterable table in the Streamlit UI.
+
+### User interface
+- **Session state persistence** — Owner, pets, tasks, and the generated schedule survive across Streamlit reruns using `st.session_state` with guard checks (`"key" not in st.session_state`).
+- **Interactive task completion** — Checkbox widgets per task trigger `complete_task()`, with an `st.success` toast showing the next due date for recurring tasks.
+- **Stale schedule clearing** — Adding a pet, adding a task, or toggling completion automatically invalidates the cached schedule so the user always sees up-to-date results.
 
 ## Testing PawPal+
 
