@@ -32,6 +32,28 @@ Beyond basic priority sorting, the scheduler includes three additional features:
 
 The core algorithm is a greedy fit: tasks are sorted by priority then duration, and each task is added to the plan if it fits in the owner's remaining time. This keeps the logic simple and the reasoning text explainable at the cost of occasionally leaving small time gaps that a knapsack approach could fill.
 
+## Testing PawPal+
+
+Run the full test suite from the project root:
+
+```bash
+python -m pytest
+```
+
+The suite contains **15 tests** across five categories:
+
+| Category | Tests | What they verify |
+|----------|-------|-----------------|
+| Basic operations | 2 | Task completion status toggle, task count after adding to a pet |
+| Sorting correctness | 3 | Priority ordering (high → low), duration tiebreaker, chronological `sort_by_time()` |
+| Recurrence logic | 4 | Daily task → +1 day, weekly → +7 days, one-time → no recurrence, Pet auto-appends next occurrence |
+| Conflict detection | 3 | Overlapping time ranges flagged, adjacent (non-overlapping) entries pass clean, identical start times flagged |
+| Edge cases | 3 | Pet with no tasks → empty schedule, zero available minutes → nothing scheduled, all tasks completed → empty schedule |
+
+**Confidence level: 4/5**
+
+The test suite covers all core scheduling behaviors, recurrence rules, and boundary conditions. One star is withheld because the tests do not yet cover multi-pet cross-schedule interactions or UI-level integration with Streamlit session state — areas that could harbor bugs not caught by unit tests alone.
+
 ## Getting started
 
 ### Setup
