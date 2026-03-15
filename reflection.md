@@ -2,6 +2,98 @@
 
 ## 1. System Design
 
+**Core user actions**
+
+1. **Set up owner and pet profile** — The user enters basic information about themselves and their pet (e.g., pet name, species, owner time availability). This profile acts as the input context that constrains what the scheduler can realistically plan.
+
+2. **Add and edit care tasks** — The user creates tasks representing pet care activities (walks, feeding, medications, grooming, enrichment, etc.), specifying at minimum a duration and a priority level. Users can also edit or remove existing tasks to keep the list current.
+
+3. **Generate and review a daily plan** — The user triggers the scheduler to produce a prioritized daily schedule based on the active tasks and the owner's constraints. The app displays the resulting plan clearly and explains why certain tasks were included, ordered, or omitted.
+
+---
+
+**Objects (classes) in the system**
+
+1. **Owner** — Represents the person using the app.
+   - *Attributes:* `name` (the owner's display name); `available_minutes` (how many minutes they have free for pet care today)
+   - *Methods:* `has_enough_time(minutes)` — checks whether a given task duration fits within the owner's remaining available time and returns true or false
+
+2. **Pet** — Represents the animal being cared for.
+   - *Attributes:* `name` (the pet's name); `species` (e.g. dog, cat, other)
+   - *Methods:* none yet — Pet is a simple data-holding object; the Scheduler references it to personalize the plan's reasoning text
+
+3. **CareTask** — Represents a single care activity the owner wants to get done.
+   - *Attributes:* `title` (short name, e.g. "Morning walk"); `duration_minutes` (how long the task takes); `priority` (low, medium, or high); `task_type` (category such as exercise, feeding, medication, or grooming)
+   - *Methods:* `priority_rank()` — converts the text priority into a number (high = 3, medium = 2, low = 1) so tasks can be sorted consistently without string comparisons scattered across the codebase
+
+4. **ScheduledEntry** — Represents one task as it appears in the final plan, pairing the task with a start time and an explanation.
+   - *Attributes:* `task` (the CareTask being scheduled); `start_time` (wall-clock time, e.g. "08:00"); `reasoning` (one sentence explaining why this task was included and placed at this time)
+   - *Methods:* none — this is a result record that bundles everything the UI needs to display a single row of the schedule
+
+5. **Scheduler** — Contains all the logic for turning a list of tasks and the owner's time budget into an ordered, time-stamped daily plan.
+   - *Attributes:* `owner` (provides the available-time constraint); `pet` (used to personalize the reasoning text); `tasks` (the pool of CareTask objects to consider)
+   - *Methods:* `generate()` — sorts tasks by priority, fits them within the available time window, and returns a complete DailySchedule; `_assign_start_times(entries)` — private helper that walks a sorted task list, assigns sequential start times from 08:00, and writes a reasoning string for each entry
+
+6. **DailySchedule** — The output artifact: an ordered list of scheduled entries plus a human-readable summary.
+   - *Attributes:* `entries` (ordered list of ScheduledEntry objects); `summary` (e.g. "3 of 5 tasks fit in Jordan's 60-minute window")
+   - *Methods:* `to_dict_list()` — converts entries into plain dicts so the result can be passed directly to `st.table()` in the Streamlit UI
+
+---
+
+**Class diagram**
+
+```mermaid
+classDiagram
+    class Owner {
+        +str name
+        +int available_minutes
+        +has_enough_time(minutes: int) bool
+    }
+
+    class Pet {
+        +str name
+        +str species
+    }
+
+    class CareTask {
+        +str title
+        +int duration_minutes
+        +str priority
+        +str task_type
+        +priority_rank() int
+    }
+
+    class ScheduledEntry {
+        +CareTask task
+        +str start_time
+        +str reasoning
+    }
+
+    class Scheduler {
+        +Owner owner
+        +Pet pet
+        +list tasks
+        +generate() DailySchedule
+        -_assign_start_times(entries: list) list
+    }
+
+    class DailySchedule {
+        +list entries
+        +str summary
+        +to_dict_list() list
+    }
+
+    Owner "1" --> "1" Pet : owns
+    Scheduler --> Owner : uses
+    Scheduler --> Pet : uses
+    Scheduler --> "*" CareTask : schedules
+    Scheduler ..> DailySchedule : produces
+    DailySchedule --> "*" ScheduledEntry : contains
+    ScheduledEntry --> CareTask : references
+```
+
+---
+
 **a. Initial design**
 
 - Briefly describe your initial UML design.
